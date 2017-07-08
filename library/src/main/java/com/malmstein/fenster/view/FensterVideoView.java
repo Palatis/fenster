@@ -8,10 +8,6 @@ import android.content.res.AssetFileDescriptor;
 import android.content.res.TypedArray;
 import android.graphics.SurfaceTexture;
 import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.media.MediaPlayer.OnCompletionListener;
-import android.media.MediaPlayer.OnErrorListener;
-import android.media.MediaPlayer.OnInfoListener;
 import android.net.Uri;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -25,6 +21,9 @@ import android.widget.MediaController;
 
 import com.malmstein.fenster.R;
 import com.malmstein.fenster.controller.FensterPlayerController;
+import com.malmstein.fenster.factory.AndroidMediaPlayerFactory;
+import com.malmstein.fenster.factory.IMediaPlayer;
+import com.malmstein.fenster.factory.MediaPlayerFactory;
 import com.malmstein.fenster.play.FensterPlayer;
 import com.malmstein.fenster.play.FensterVideoStateListener;
 
@@ -48,8 +47,16 @@ import java.util.Map;
  */
 
 public class FensterVideoView extends TextureView implements MediaController.MediaPlayerControl, FensterPlayer {
-
     public static final String TAG = "TextureVideoView";
+
+    // <editor-fold desc="Factory">
+    private static MediaPlayerFactory sMediaPlayerFactory = new AndroidMediaPlayerFactory();
+
+    public static void setMediaPlayerFactory(MediaPlayerFactory factory) {
+        sMediaPlayerFactory = factory == null ? new AndroidMediaPlayerFactory() : factory;
+    }
+    // </editor-fold>
+
     public static final int VIDEO_BEGINNING = 0;
 
     public enum ScaleType {
@@ -83,12 +90,12 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     private AssetFileDescriptor mAssetFileDescriptor;
     private Map<String, String> mHeaders;
     private SurfaceTexture mSurfaceTexture;
-    private MediaPlayer mMediaPlayer = null;
     private FensterPlayerController fensterPlayerController;
-    private OnCompletionListener mOnCompletionListener;
-    private MediaPlayer.OnPreparedListener mOnPreparedListener;
-    private OnErrorListener mOnErrorListener;
-    private OnInfoListener mOnInfoListener;
+    private IMediaPlayer mMediaPlayer = null;
+    private IMediaPlayer.IOnPreparedListener mOnPreparedListener;
+    private IMediaPlayer.IOnCompletionListener mOnCompletionListener;
+    private IMediaPlayer.IOnErrorListener mOnErrorListener;
+    private IMediaPlayer.IOnInfoListener mOnInfoListener;
     private int mAudioSession;
     private int mSeekWhenPrepared;  // recording the seek position while preparing
     private int mCurrentBufferPercentage;
@@ -201,10 +208,10 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     private void setScaleType(ScaleType scaleType) {
         switch (scaleType) {
             case SCALE_TO_FIT:
-                mMediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
+                mMediaPlayer.setVideoScalingMode(sMediaPlayerFactory.get_VIDEO_SCALING_MODE_SCALE_TO_FIT());
                 break;
             case CROP:
-                mMediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                mMediaPlayer.setVideoScalingMode(sMediaPlayerFactory.get_VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING());
                 break;
         }
     }
@@ -239,7 +246,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         // we shouldn't clear the target state, because somebody might have called start() previously
         release(false);
         try {
-            mMediaPlayer = new MediaPlayer();
+            mMediaPlayer = sMediaPlayerFactory.newInstance();
 
             if (mAudioSession != 0) {
                 mMediaPlayer.setAudioSessionId(mAudioSession);
@@ -297,7 +304,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         Log.w("Unable to open content:" + mUri, ex);
         mCurrentState = STATE_ERROR;
         mTargetState = STATE_ERROR;
-        mErrorListener.onError(mMediaPlayer, MediaPlayer.MEDIA_ERROR_UNKNOWN, 0);
+        mErrorListener.onError(mMediaPlayer, sMediaPlayerFactory.get_MEDIA_ERROR_UNKNOWN(), 0);
     }
 
     public void setMediaController(final FensterPlayerController controller) {
@@ -309,15 +316,24 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     private void attachMediaController() {
         if (mMediaPlayer != null && fensterPlayerController != null) {
             fensterPlayerController.setMediaPlayer(this);
-//            View anchorView = this.getParent() instanceof View ? (View) this.getParent() : this;
-//            fensterPlayerController.setAnchorView(anchorView);
             fensterPlayerController.setEnabled(isInPlaybackState());
         }
     }
 
-    private MediaPlayer.OnVideoSizeChangedListener mSizeChangedListener = new MediaPlayer.OnVideoSizeChangedListener() {
+    private boolean pausedAt(final int seekToPosition) {
+        return !isPlaying() && (seekToPosition != 0 || getCurrentPosition() > 0);
+    }
+
+    private void showStickyMediaController() {
+        if (fensterPlayerController != null) {
+            fensterPlayerController.show(0);
+        }
+    }
+
+    // <editor-fold desc="IMediaPlayer Listeners">
+    private IMediaPlayer.IOnVideoSizeChangedListener mSizeChangedListener = new IMediaPlayer.IOnVideoSizeChangedListener() {
         @Override
-        public void onVideoSizeChanged(final MediaPlayer mp, final int width, final int height) {
+        public void onVideoSizeChanged(final IMediaPlayer mp, final int width, final int height) {
             videoSizeCalculator.setVideoSize(mp.getVideoWidth(), mp.getVideoHeight());
             if (videoSizeCalculator.hasASizeYet()) {
                 requestLayout();
@@ -325,9 +341,9 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         }
     };
 
-    private MediaPlayer.OnPreparedListener mPreparedListener = new MediaPlayer.OnPreparedListener() {
+    private IMediaPlayer.IOnPreparedListener mPreparedListener = new IMediaPlayer.IOnPreparedListener() {
         @Override
-        public void onPrepared(final MediaPlayer mp) {
+        public void onPrepared(final IMediaPlayer mp) {
             mCurrentState = STATE_PREPARED;
 
             mCanPause = true;
@@ -356,20 +372,9 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         }
     };
 
-    private boolean pausedAt(final int seekToPosition) {
-        return !isPlaying() && (seekToPosition != 0 || getCurrentPosition() > 0);
-    }
-
-    private void showStickyMediaController() {
-        if (fensterPlayerController != null) {
-            fensterPlayerController.show(0);
-        }
-    }
-
-    private OnCompletionListener mCompletionListener = new OnCompletionListener() {
-
+    private IMediaPlayer.IOnCompletionListener mCompletionListener = new IMediaPlayer.IOnCompletionListener() {
         @Override
-        public void onCompletion(final MediaPlayer mp) {
+        public void onCompletion(final IMediaPlayer mp) {
             setKeepScreenOn(false);
             mCurrentState = STATE_PLAYBACK_COMPLETED;
             mTargetState = STATE_PLAYBACK_COMPLETED;
@@ -380,9 +385,9 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         }
     };
 
-    private OnInfoListener mInfoListener = new OnInfoListener() {
+    private IMediaPlayer.IOnInfoListener mInfoListener = new IMediaPlayer.IOnInfoListener() {
         @Override
-        public boolean onInfo(final MediaPlayer mp, final int arg1, final int arg2) {
+        public boolean onInfo(final IMediaPlayer mp, final int arg1, final int arg2) {
             if (mOnInfoListener != null) {
                 mOnInfoListener.onInfo(mp, arg1, arg2);
             }
@@ -390,9 +395,9 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         }
     };
 
-    private OnErrorListener mErrorListener = new OnErrorListener() {
+    private IMediaPlayer.IOnErrorListener mErrorListener = new IMediaPlayer.IOnErrorListener() {
         @Override
-        public boolean onError(final MediaPlayer mp, final int frameworkError, final int implError) {
+        public boolean onError(final IMediaPlayer mp, final int frameworkError, final int implError) {
             Log.d(TAG, "Error: " + frameworkError + "," + implError);
             if (mCurrentState == STATE_ERROR) {
                 return true;
@@ -413,6 +418,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
             return true;
         }
     };
+    // </editor-fold>
 
     private void hideMediaController() {
         if (fensterPlayerController != null) {
@@ -427,7 +433,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     }
 
     private boolean allowPlayStateToHandle(final int frameworkError) {
-        if (frameworkError == MediaPlayer.MEDIA_ERROR_UNKNOWN || frameworkError == MediaPlayer.MEDIA_ERROR_IO) {
+        if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_UNKNOWN() || frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_IO()) {
             Log.e(TAG, "TextureVideoView error. File or network related operation errors.");
             if (hasPlayStateListener()) {
                 return onPlayStateListener.onStopWithExternalError(mMediaPlayer.getCurrentPosition() / MILLIS_IN_SEC);
@@ -455,7 +461,10 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         }
     }
 
-    private static AlertDialog createErrorDialog(final Context context, final OnCompletionListener completionListener, final MediaPlayer mediaPlayer, final int errorMessage) {
+    private static AlertDialog createErrorDialog(
+            final Context context, final IMediaPlayer.IOnCompletionListener completionListener,
+            final IMediaPlayer mediaPlayer, final int errorMessage
+    ) {
         return new AlertDialog.Builder(context)
                 .setMessage(errorMessage)
                 .setPositiveButton(
@@ -478,31 +487,24 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     private static int getErrorMessage(final int frameworkError) {
         int messageId = R.string.fen__play_error_message;
 
-        if (frameworkError == MediaPlayer.MEDIA_ERROR_IO) {
+        if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_IO()) {
             Log.e(TAG, "TextureVideoView error. File or network related operation errors.");
-        } else if (frameworkError == MediaPlayer.MEDIA_ERROR_MALFORMED) {
+        } else if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_MALFORMED()) {
             Log.e(TAG, "TextureVideoView error. Bitstream is not conforming to the related coding standard or file spec.");
-        } else if (frameworkError == MediaPlayer.MEDIA_ERROR_SERVER_DIED) {
+        } else if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_SERVER_DIED()) {
             Log.e(TAG, "TextureVideoView error. Media server died. In this case, the application must release the MediaPlayer object and instantiate a new one.");
-        } else if (frameworkError == MediaPlayer.MEDIA_ERROR_TIMED_OUT) {
+        } else if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_TIMED_OUT()) {
             Log.e(TAG, "TextureVideoView error. Some operation takes too long to complete, usually more than 3-5 seconds.");
-        } else if (frameworkError == MediaPlayer.MEDIA_ERROR_UNKNOWN) {
+        } else if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_UNKNOWN()) {
             Log.e(TAG, "TextureVideoView error. Unspecified media player error.");
-        } else if (frameworkError == MediaPlayer.MEDIA_ERROR_UNSUPPORTED) {
+        } else if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_UNSUPPORTED()) {
             Log.e(TAG, "TextureVideoView error. Bitstream is conforming to the related coding standard or file spec, but the media framework does not support the feature.");
-        } else if (frameworkError == MediaPlayer.MEDIA_ERROR_NOT_VALID_FOR_PROGRESSIVE_PLAYBACK) {
+        } else if (frameworkError == sMediaPlayerFactory.get_MEDIA_ERROR_NOT_VALID_FOR_PROGRESSIVE_PLAYBACK()) {
             Log.e(TAG, "TextureVideoView error. The video is streamed and its container is not valid for progressive playback i.e the video's index (e.g moov atom) is not at the start of the file.");
             messageId = R.string.fen__play_progressive_error_message;
         }
         return messageId;
     }
-
-    private MediaPlayer.OnBufferingUpdateListener mBufferingUpdateListener = new MediaPlayer.OnBufferingUpdateListener() {
-        @Override
-        public void onBufferingUpdate(final MediaPlayer mp, final int percent) {
-            mCurrentBufferPercentage = percent;
-        }
-    };
 
     /**
      * Register a callback to be invoked when the media file
@@ -510,7 +512,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
      *
      * @param l The callback that will be run
      */
-    public void setOnPreparedListener(final MediaPlayer.OnPreparedListener l) {
+    public void setOnPreparedListener(final IMediaPlayer.IOnPreparedListener l) {
         mOnPreparedListener = l;
     }
 
@@ -520,7 +522,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
      *
      * @param l The callback that will be run
      */
-    public void setOnCompletionListener(final OnCompletionListener l) {
+    public void setOnCompletionListener(final IMediaPlayer.IOnCompletionListener l) {
         mOnCompletionListener = l;
     }
 
@@ -532,7 +534,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
      *
      * @param l The callback that will be run
      */
-    public void setOnErrorListener(final OnErrorListener l) {
+    public void setOnErrorListener(final IMediaPlayer.IOnErrorListener l) {
         mOnErrorListener = l;
     }
 
@@ -542,7 +544,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
      *
      * @param l The callback that will be run
      */
-    private void setOnInfoListener(final OnInfoListener l) {
+    private void setOnInfoListener(final IMediaPlayer.IOnInfoListener l) {
         mOnInfoListener = l;
     }
 
@@ -673,11 +675,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
 
     @Override
     public int getDuration() {
-        if (isInPlaybackState()) {
-            return mMediaPlayer.getDuration();
-        }
-
-        return -1;
+        return isInPlaybackState() ? mMediaPlayer.getDuration() : -1;
     }
 
     /**
@@ -707,9 +705,9 @@ public class FensterVideoView extends TextureView implements MediaController.Med
 
     public void seekToSeconds(final int seconds) {
         seekTo(seconds * MILLIS_IN_SEC);
-        mMediaPlayer.setOnSeekCompleteListener(new MediaPlayer.OnSeekCompleteListener() {
+        mMediaPlayer.setOnSeekCompleteListener(new IMediaPlayer.IOnSeekCompleteListener() {
             @Override
-            public void onSeekComplete(final MediaPlayer mp) {
+            public void onSeekComplete(final IMediaPlayer mp) {
                 Log.i(TAG, "seek completed");
             }
         });
@@ -753,29 +751,35 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     @Override
     public int getAudioSessionId() {
         if (mAudioSession == 0) {
-            MediaPlayer foo = new MediaPlayer();
+            IMediaPlayer foo = sMediaPlayerFactory.newInstance();
             mAudioSession = foo.getAudioSessionId();
             foo.release();
         }
         return mAudioSession;
     }
 
-    private final OnInfoListener onInfoToPlayStateListener = new OnInfoListener() {
-
+    private IMediaPlayer.IOnBufferingUpdateListener mBufferingUpdateListener = new IMediaPlayer.IOnBufferingUpdateListener() {
         @Override
-        public boolean onInfo(final MediaPlayer mp, final int what, final int extra) {
+        public void onBufferingUpdate(final IMediaPlayer mp, final int percent) {
+            mCurrentBufferPercentage = percent;
+        }
+    };
+
+    private final IMediaPlayer.IOnInfoListener onInfoToPlayStateListener = new IMediaPlayer.IOnInfoListener() {
+        @Override
+        public boolean onInfo(final IMediaPlayer mp, final int what, final int extra) {
             if (noPlayStateListener()) {
                 return false;
             }
 
-            if (MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START == what) {
+            if (sMediaPlayerFactory.get_MEDIA_INFO_VIDEO_RENDERING_START() == what) {
                 onPlayStateListener.onFirstVideoFrameRendered();
                 onPlayStateListener.onPlay();
             }
-            if (MediaPlayer.MEDIA_INFO_BUFFERING_START == what) {
+            if (sMediaPlayerFactory.get_MEDIA_INFO_BUFFERING_START() == what) {
                 onPlayStateListener.onBuffer();
             }
-            if (MediaPlayer.MEDIA_INFO_BUFFERING_END == what) {
+            if (sMediaPlayerFactory.get_MEDIA_INFO_BUFFERING_END() == what) {
                 onPlayStateListener.onPlay();
             }
 
@@ -794,5 +798,4 @@ public class FensterVideoView extends TextureView implements MediaController.Med
     public void setOnPlayStateListener(final FensterVideoStateListener onPlayStateListener) {
         this.onPlayStateListener = onPlayStateListener;
     }
-
 }
