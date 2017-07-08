@@ -1,8 +1,4 @@
 apply plugin: 'com.android.library'
-//apply plugin: 'com.novoda.bintray-release'
-
-def gitSha = 'git rev-parse --short HEAD'.execute([], project.rootDir).text.trim()
-def buildTime = new Date().format("yyyy-MM-dd'T'HH:mm'Z'", TimeZone.getTimeZone('UTC'))
 
 // Manifest version information!
 int versionMajor = 0
@@ -36,12 +32,3 @@ android {
 dependencies {
     compile 'com.android.support:support-compat:25.4.0'
 }
-
-//publish {
-//    userOrg = 'malmstein'
-//    groupId = 'com.malmstein'
-//    artifactId = 'fenster'
-//    publishVersion = '0.0.2'
-//    desc = 'A library to display videos in a TextureView using a custom MediaPlayer controller'
-//    website = 'https://github.com/malmstein/fenster'
-//}
