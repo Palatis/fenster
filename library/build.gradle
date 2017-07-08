@@ -33,6 +33,10 @@ android {
     resourcePrefix 'fen__'
 }
 
+dependencies {
+    compile 'com.android.support:support-compat:25.4.0'
+}
+
 //publish {
 //    userOrg = 'malmstein'
 //    groupId = 'com.malmstein'
