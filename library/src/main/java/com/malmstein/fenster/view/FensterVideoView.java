@@ -272,7 +272,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
             // we don't set the target state here either, but preserve the target state that was there before.
             mCurrentState = STATE_PREPARING;
             attachMediaController();
-        } catch (final IOException | IllegalArgumentException ex) {
+        } catch (final IOException | IllegalStateException | IllegalArgumentException ex) {
             notifyUnableToOpenContent(ex);
         }
     }
