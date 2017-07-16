@@ -285,7 +285,11 @@ public class FensterVideoView extends TextureView implements MediaController.Med
                     mAssetFileDescriptor.getLength()
             );
         } else {
-            mMediaPlayer.setDataSource(getContext(), mUri, mHeaders);
+            try {
+                mMediaPlayer.setDataSource(getContext(), mUri, mHeaders);
+            } catch (NullPointerException ex) {
+                Log.e(TAG, "setDataSource(): NPE", ex);
+            }
         }
     }
 
