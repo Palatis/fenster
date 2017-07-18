@@ -287,8 +287,7 @@ public class FensterVideoView extends TextureView implements MediaController.Med
         } else {
             try {
                 mMediaPlayer.setDataSource(getContext(), mUri, mHeaders);
-            } catch (NullPointerException ex) {
-                Log.e(TAG, "setDataSource(): NPE", ex);
+            } catch (NullPointerException ignored) {
             }
         }
     }
