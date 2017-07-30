@@ -8,7 +8,7 @@ int versionBuild = 1 // bump for dogfood builds, public betas, etc.
 
 android {
     compileSdkVersion 25
-    buildToolsVersion "26.0.0"
+    buildToolsVersion "26.0.1"
 
     defaultConfig {
         minSdkVersion 16
